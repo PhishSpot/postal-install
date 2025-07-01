@@ -8,6 +8,17 @@ DEV_MODE="false"
 GIT_PULL="true"
 FORCE_VERSION=""
 
+# Set default GitHub repository URL
+if [ -z "$GITHUB_URL" ]; then
+    GITHUB_REPO="postalserver/postal"
+    GITHUB_BASE_URL="https://github.com/postalserver/postal"
+else
+    # Extract repository name from GitHub URL
+    GITHUB_REPO=$(echo "$GITHUB_URL" | sed 's|https://github.com/||' | sed 's|git@github.com:||' | sed 's|\.git$||')
+    GITHUB_BASE_URL="$GITHUB_URL"
+    echo "Using custom GitHub repository: $GITHUB_REPO"
+fi
+
 if command -v gsed &> /dev/null
 then
     SED="gsed"
@@ -61,7 +72,11 @@ call-hook() {
 run-docker-compose() {
     if [ ! -f "docker-compose.yml" ]; then
         echo 'No docker-compose file available. Generating using latest available version...'
-        latest_version=`get-latest-postal-version`
+        if [ "$GITHUB_REPO" != "postalserver/postal" ]; then
+            latest_version="latest"
+        else
+            latest_version=`get-latest-postal-version`
+        fi
         echo "Latest verison is $latest_version"
         set-postal-version $latest_version
     fi
@@ -108,10 +123,21 @@ set-postal-version() {
     # Replace the version string
     $SED -i "s/{{version}}/$desired_version/" docker-compose.yml
 
+    # If using custom repo, replace the image name in docker-compose.yml
+    if [ "$GITHUB_REPO" != "postalserver/postal" ]; then
+        # Replace default image with custom repo image
+        $SED -i "s|postalserver/postal:$desired_version|$GITHUB_REPO:$desired_version|" docker-compose.yml
+    fi
+
     call-hook "set-postal-version"
 }
 
 get-latest-postal-version() {
+    # If using custom repo, return latest
+    if [ "$GITHUB_REPO" != "postalserver/postal" ]; then
+        echo "latest"
+        return 0
+    fi
 
     if ! command -v curl &> /dev/null
     then
@@ -125,7 +151,7 @@ get-latest-postal-version() {
         return 1
     fi
 
-    local response=`curl -s https://api.github.com/repos/postalserver/postal/releases/latest`
+    local response=`curl -s https://api.github.com/repos/$GITHUB_REPO/releases/latest`
 
     local error=`echo $response | jq -r '.message'`
     if [[ "$error" == *"rate limit exceeded"* ]]; then
@@ -226,8 +252,13 @@ case "$1" in
                 latest_version="$FORCE_VERSION"
                 echo "Using version: $latest_version"
             else
-                echo 'No version specified, using latest available version...'
-                latest_version=`get-latest-postal-version`
+                if [ "$GITHUB_REPO" != "postalserver/postal" ]; then
+                    echo 'No version specified, using latest for custom repository...'
+                    latest_version="latest"
+                else
+                    echo 'No version specified, using latest available version...'
+                    latest_version=`get-latest-postal-version`
+                fi
             fi
         else
             latest_version="$2"
@@ -288,18 +319,23 @@ case "$1" in
             exit 1
         fi
 
-        # Get the latest verison of Postal as the starting version for a
-        # new installation.
-        if [ ! $FORCE_VERSION == "" ]; then
-            latest_version="$FORCE_VERSION"
-            echo "Using version: $latest_version"
+        # Use latest for custom repos, otherwise get latest version
+        if [ "$GITHUB_REPO" != "postalserver/postal" ]; then
+            latest_version="latest"
+            echo "Using latest for custom repository: $GITHUB_REPO"
         else
-            latest_version=`get-latest-postal-version`
-            echo "Latest version is: $latest_version"
+            if [ ! $FORCE_VERSION == "" ]; then
+                latest_version="$FORCE_VERSION"
+                echo "Using version: $latest_version"
+            else
+                latest_version=`get-latest-postal-version`
+                echo "Latest version is: $latest_version"
+            fi
         fi
 
         set-postal-version $latest_version
 
+        # Determine major version for config files
         if [[ $latest_version == 2* ]]; then
             MAJOR_VERSION=2
         else
@@ -334,6 +370,10 @@ case "$1" in
     *)
         echo "Usage: postal [command]"
         echo
+        if [ "$GITHUB_REPO" != "postalserver/postal" ]; then
+            echo "Using custom repository: $GITHUB_REPO"
+            echo
+        fi
         echo "Running postal:"
         echo
         echo -e " * \e[35mstart\e[0m - start Postal"
