@@ -8,7 +8,7 @@ DEV_MODE="false"
 GIT_PULL="true"
 FORCE_VERSION=""
 
-# Set default GitHub repository URL
+# Set default GitHub repository URL and branch
 if [ -z "$GITHUB_URL" ]; then
     GITHUB_REPO="postalserver/postal"
     GITHUB_BASE_URL="https://github.com/postalserver/postal"
@@ -16,7 +16,13 @@ else
     # Extract repository name from GitHub URL
     GITHUB_REPO=$(echo "$GITHUB_URL" | sed 's|https://github.com/||' | sed 's|git@github.com:||' | sed 's|\.git$||')
     GITHUB_BASE_URL="$GITHUB_URL"
-    echo "Using custom GitHub repository: $GITHUB_REPO"
+
+    # Set branch (default to main if not specified)
+    if [ -z "$GITHUB_BRANCH" ]; then
+        GITHUB_BRANCH="main"
+    fi
+
+    echo "Using custom GitHub repository: $GITHUB_REPO (branch: $GITHUB_BRANCH)"
 fi
 
 if command -v gsed &> /dev/null
@@ -125,8 +131,10 @@ set-postal-version() {
 
     # If using custom repo, replace the image name in docker-compose.yml
     if [ "$GITHUB_REPO" != "postalserver/postal" ]; then
-        # Replace default image with custom repo image
-        $SED -i "s|postalserver/postal:$desired_version|$GITHUB_REPO:$desired_version|" docker-compose.yml
+        # Use branch as tag for custom repos
+        custom_tag="$GITHUB_BRANCH"
+        # Replace default image with custom repo image using branch as tag
+        $SED -i "s|postalserver/postal:$desired_version|$GITHUB_REPO:$custom_tag|" docker-compose.yml
     fi
 
     call-hook "set-postal-version"
@@ -237,7 +245,11 @@ case "$1" in
         then
             call-hook "pre-upgrade-pull"
             echo 'Pull latest installation helper repository from GitHub...'
-            run "git pull origin"
+            if [ -z "$GITHUB_BRANCH" ]; then
+                run "git pull origin"
+            else
+                run "git pull origin $GITHUB_BRANCH"
+            fi
             call-hook "post-upgrade-pull"
 
             echo 'Re-executing upgrade script from pulled repository'
@@ -396,5 +408,9 @@ case "$1" in
         echo -e " * \e[34mtest-app-smtp\e[0m - send a test message through Postal"
         echo -e " * \e[34mbootstrap hostname [path]\e[0m - create a new set of config"
         echo -e " * \e[34mbash [service]\e[0m - access a bash console for a running process"
+        echo
+        echo "Custom repository usage:"
+        echo -e " * \e[33mGITHUB_URL=https://github.com/PhishSpot/postal-server postal bootstrap hostname\e[0m"
+        echo -e " * \e[33mGITHUB_URL=https://github.com/PhishSpot/postal-server GITHUB_BRANCH=develop postal bootstrap hostname\e[0m"
         echo
 esac
