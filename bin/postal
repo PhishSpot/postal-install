@@ -41,6 +41,10 @@ run() {
     fi
 }
 
+docker-safe-name() {
+    echo "$1" | tr '[:upper:]' '[:lower:]'
+}
+
 ORIGINAL_ARGS="${@:2}"
 POSITIONAL_ARGS=()
 while [[ $# -gt 0 ]]; do
@@ -131,10 +135,11 @@ set-postal-version() {
 
     # If using custom repo, replace the image name in docker-compose.yml
     if [ "$GITHUB_REPO" != "postalserver/postal" ]; then
-        # Use branch as tag for custom repos
+        # Convert to Docker-safe naming (lowercase)
+        docker_repo=$(docker-safe-name "$GITHUB_REPO")
         custom_tag="$GITHUB_BRANCH"
         # Replace default image with custom repo image using branch as tag
-        $SED -i "s|postalserver/postal:$desired_version|$GITHUB_REPO:$custom_tag|" docker-compose.yml
+        $SED -i "s|postalserver/postal:$desired_version|$docker_repo:$custom_tag|" docker-compose.yml
     fi
 
     call-hook "set-postal-version"
